@@ -1,0 +1,42 @@
+name: Release Charts
+
+on:
+  push:
+    paths:
+      - charts/**
+      - .github/workflows/helm.yml
+    branches:
+      - master
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Run chart-testing (lint)
+        id: lint
+        uses: helm/chart-testing-action@v1.0.0
+        with:
+          command: lint
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.0.0
+      - name: Install helm chart
+        run:  helm install hostname-for-target-group ./charts/hostname-for-target-group
+      - name: Wait for deployment to finish
+        timeout-minutes: 1
+        run:  kubectl rollout status --watch deployment/hostname-for-target-group
+      - name: Test helm chart
+        run:  helm test hostname-for-target-group
+      - name: Remove helm chart
+        run:  helm uninstall hostname-for-target-group
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.0.0
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

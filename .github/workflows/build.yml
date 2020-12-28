@@ -1,0 +1,29 @@
+name: Build Project
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+      - name: Make builder
+        run: ./make.sh build_builder
+      - name: Lint
+        run: ./make.sh dockerrun lint
+      - name: Test
+        run: ./make.sh dockerrun test
+      - name: Build docker
+        run: ./make.sh build_docker
+      - name: Login to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+      - name: Push docker image
+        if: github.event_name == 'push'
+        run: ./make.sh push_images
