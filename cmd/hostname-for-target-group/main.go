@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
@@ -10,15 +12,18 @@ import (
 	"github.com/cresta/gotracing/datadog"
 	"github.com/cresta/hostname-for-target-group/internal/state"
 	"github.com/cresta/hostname-for-target-group/internal/syncer"
+	"github.com/cresta/httpsimple"
 	"github.com/cresta/zapctx"
-	"github.com/signalfx/golib/v3/errors"
+	"github.com/gorilla/mux"
 	"github.com/signalfx/golib/v3/httpdebug"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type config struct {
@@ -37,6 +42,7 @@ type config struct {
 	TargetFqdn                      string
 	LambdaMode                      string
 	TagCachePrefix                  string
+	LogLevel                        string
 }
 
 func (c config) WithDefaults() config {
@@ -55,7 +61,30 @@ func (c config) WithDefaults() config {
 	if c.InvocationsBeforeDeregistration == "" {
 		c.InvocationsBeforeDeregistration = "3"
 	}
+	if c.RemoveUnknownTgIp == "" {
+		c.RemoveUnknownTgIp = "true"
+	}
+	if c.LogLevel == "" {
+		c.LogLevel = "INFO"
+	}
 	return c
+}
+
+func (c config) getInvocationsBeforeDeregistration(ctx context.Context, logger *zapctx.Logger) int {
+	i, err := strconv.Atoi(c.InvocationsBeforeDeregistration)
+	if err != nil {
+		logger.IfErr(err).Warn(ctx, "unable to parse INVOCATIONS_BEFORE_DEREGISTRATION: defaulting to 3", zap.String("env", c.InvocationsBeforeDeregistration))
+		return 3
+	}
+	return i
+}
+
+func (c config) getRemoveUnknownTgIp(ctx context.Context, logger *zapctx.Logger) bool {
+	ret, err := strconv.ParseBool(c.RemoveUnknownTgIp)
+	if err != nil {
+		logger.IfErr(err).Warn(ctx, "unable to parse RemoveUnknownTgIp, defaulting to true", zap.String("RemoveUnknownTgIp", c.RemoveUnknownTgIp))
+	}
+	return ret
 }
 
 func getConfig() config {
@@ -91,6 +120,7 @@ func getConfig() config {
 		LambdaMode: os.Getenv("LAMBDA_MODE"),
 		// Optional: Adds a prefix key to fetches for tag cache.
 		TagCachePrefix: os.Getenv("TAG_CACHE_PREFIX"),
+		LogLevel: os.Getenv("LOG_LEVEL"),
 	}.WithDefaults()
 }
 
@@ -122,38 +152,46 @@ var instance = Service{
 	},
 }
 
-func setupLogging() (*zapctx.Logger, error) {
-	l, err := zap.NewProduction()
+func setupLogging(logLevel string) (*zapctx.Logger, error) {
+	zapCfg := zap.NewProductionConfig()
+	var lvl zapcore.Level
+	logLevelErr := lvl.UnmarshalText([]byte(logLevel))
+	if logLevelErr == nil {
+		zapCfg.Level.SetLevel(lvl)
+	}
+	l, err := zapCfg.Build(zap.AddCaller())
 	if err != nil {
 		return nil, err
 	}
-	return zapctx.New(l), nil
+	retLogger := zapctx.New(l)
+	retLogger.IfErr(logLevelErr).Warn(context.Background(), "unable to parse log level")
+	return retLogger, nil
 }
 
 type runningMode int
 const (
-	lambda runningMode = iota
-	daemon
-	oneTime
+	lambdaRunningMode runningMode = iota
+	daemonRunningMode
+	oneTimeRunningMode
 )
 
 func (m *Service) getRunningMode() runningMode {
 	isLambdaMode, err := strconv.ParseBool(m.config.LambdaMode)
 	if err == nil && isLambdaMode {
-		return lambda
+		return lambdaRunningMode
 	}
 	isDaemonMode, err := strconv.ParseBool(m.config.DaemonMode)
 	if err == nil && isDaemonMode {
-		return daemon
+		return daemonRunningMode
 	}
-	return oneTime
+	return oneTimeRunningMode
 }
 
 func (m *Service) Main() {
 	cfg := m.config
 	if m.log == nil {
 		var err error
-		m.log, err = setupLogging()
+		m.log, err = setupLogging(m.config.LogLevel)
 		if err != nil {
 			fmt.Printf("Unable to setup logging: %v", err)
 			m.osExit(1)
@@ -178,30 +216,38 @@ func (m *Service) Main() {
 		m.osExit(1)
 		return
 	}
+	if m.getRunningMode() == oneTimeRunningMode {
+		err := m.runSingleSync(ctx)
+		if err != nil {
+			m.log.IfErr(err).Warn(ctx, "unable to run single sync")
+			m.osExit(1)
+			return
+		}
+		m.osExit(0)
+		return
+	}
+	if m.getRunningMode() == lambdaRunningMode {
+		m.runLambda()
+		m.osExit(0)
+		return
+	}
 
-	m.server = setupServer(cfg, m.log, rootTracer)
+	m.server = m.setupServer(cfg, m.log, rootTracer)
 	shutdownCallback, err := setupDebugServer(m.log, cfg.DebugListenAddr, m)
 	if err != nil {
 		m.log.IfErr(err).Panic(context.Background(), "unable to setup debug server")
 		m.osExit(1)
 		return
 	}
-
-	ln, err := net.Listen("tcp", m.server.Addr)
+	tickerShutdown, err := m.setupTicker()
 	if err != nil {
-		m.log.Panic(context.Background(), "unable to listen to port", zap.Error(err), zap.String("addr", m.server.Addr))
+		m.log.IfErr(err).Panic(context.Background(), "unable to setup ticker")
 		m.osExit(1)
 		return
 	}
-	if m.onListen != nil {
-		m.onListen(ln)
-	}
+	defer tickerShutdown()
+	serveErr := httpsimple.BasicServerRun(m.log, m.server, m.onListen, m.config.ListenAddr)
 
-	serveErr := m.server.Serve(ln)
-	if serveErr != http.ErrServerClosed {
-		m.log.IfErr(serveErr).Error(context.Background(), "server existed")
-	}
-	m.log.Info(context.Background(), "Server finished")
 	shutdownCallback()
 	if serveErr != nil {
 		m.osExit(1)
@@ -227,12 +273,15 @@ func (m *Service) injection(ctx context.Context) error {
 		return fmt.Errorf("unable to make resolver: %w", err)
 	}
 	m.syncer = &syncer.Syncer{
-		Log:        m.log.With("),
-		State:      nil,
+		Log:        m.log.With(zap.String("class", "syncer")),
+		State:      m.stateStorage,
 		Client:     nil,
-		Config:     syncer.Config{},
-		Resolver:   nil,
-		SyncFinder: nil,
+		Config:     syncer.Config{
+			InvocationsBeforeDeregistration: m.config.getInvocationsBeforeDeregistration(ctx, m.log),
+			RemoveUnknownTgIp:               m.config.getRemoveUnknownTgIp(ctx, m.log),
+		},
+		Resolver:   m.resolver,
+		SyncFinder: m.syncFinder,
 	}
 	return nil
 }
@@ -263,7 +312,7 @@ func (m *Service) makeResolver(ctx context.Context) (syncer.Resolver, error) {
 }
 
 func (m *Service) makeSyncCache(ctx context.Context) (state.SyncCache, error) {
-	if m.getRunningMode() == daemon {
+	if m.getRunningMode() == daemonRunningMode {
 		m.log.Debug(ctx, "using local sync cache b/c of daemon mode")
 		return &state.LocalSyncCache{}, nil
 	}
@@ -301,6 +350,64 @@ func (m *Service) makeSyncFinder(ctx context.Context) (state.SyncFinder, error) 
 	}, nil
 }
 
+func (m *Service) runSingleSync(ctx context.Context) error {
+	err := m.syncer.Sync(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to run single sync: %w", err)
+	}
+	return nil
+}
+
+func (m *Service) runLambda() {
+	lambda.Start(m.runSingleSync)
+}
+
+func (m *Service) setupServer(cfg config, log *zapctx.Logger, tracer gotracing.Tracing) *http.Server {
+	rootHandler := mux.NewRouter()
+	rootHandler.Handle("/health", httpsimple.HealthHandler(log, tracer))
+	triggerHandler := httpsimple.BasicHandler(func(request *http.Request) httpsimple.CanHTTPWrite {
+		var ret httpsimple.BasicResponse
+		if err := m.runSingleSync(request.Context()); err != nil {
+			ret.Code = 503
+			ret.Msg = strings.NewReader(err.Error())
+		} else {
+			ret.Code = 200
+			ret.Msg = strings.NewReader("ok")
+		}
+		return &ret
+	}, m.log)
+	rootHandler.Handle("/trigger", triggerHandler)
+	return &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           rootHandler,
+	}
+}
+
+func (m *Service) setupTicker() (func(), error) {
+	tickInterval, err := time.ParseDuration(m.config.DnsRefreshInterval)
+	if err != nil {
+		return nil, err
+	}
+	onClose := make(chan struct{})
+	ticker := time.NewTicker(tickInterval)
+	go func() {
+		for  {
+			select {
+				case <- onClose:
+					ticker.Stop()
+					return
+				case <- ticker.C:
+					if err := m.runSingleSync(context.Background()); err != nil {
+						m.log.IfErr(err).Warn(context.Background(), "unable to run single sync")
+					}
+			}
+		}
+	}()
+	return func() {
+		close(onClose)
+	}, nil
+}
+
 func setupDebugServer(l *zapctx.Logger, listenAddr string, obj interface{}) (func(), error) {
 	if listenAddr == "" || listenAddr == "-" {
 		return func() {
@@ -326,4 +433,3 @@ func setupDebugServer(l *zapctx.Logger, listenAddr string, obj interface{}) (fun
 		l.IfErr(err).Warn(context.Background(), "unable to close listening socket for debug server")
 	}, nil
 }
-
