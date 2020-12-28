@@ -4,7 +4,6 @@ FROM ${BUILDER_IMAGE} as builder
 RUN mkdir /empty_dir
 COPY . /work
 RUN ./make.sh build
-RUN bash /work/known_hosts.sh /etc/ssh/ssh_known_hosts
 
 FROM scratch
 # Import from builder.
