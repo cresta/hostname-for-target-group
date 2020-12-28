@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/sts"
+
 	"github.com/aws/aws-sdk-go/service/elbv2"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -221,6 +223,7 @@ func (m *Service) Main() {
 		m.osExit(1)
 		return
 	}
+	m.logAWSUser(ctx)
 	if m.getRunningMode() == oneTimeRunningMode {
 		err := m.runSingleSync(ctx)
 		if err != nil {
@@ -424,6 +427,19 @@ func (m *Service) setupTicker() (func(), error) {
 	return func() {
 		close(onClose)
 	}, nil
+}
+
+func (m *Service) logAWSUser(ctx context.Context) {
+	if m.session == nil {
+		return
+	}
+	stsClient := sts.New(m.session)
+	res, err := stsClient.GetCallerIdentityWithContext(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		m.log.IfErr(err).Warn(ctx, "unable to fetch current caller identity")
+		return
+	}
+	m.log.Info(ctx, "using aws session", zap.String("account", *res.Account), zap.String("user_id", *res.UserId), zap.String("arn", *res.Arn))
 }
 
 func setupDebugServer(l *zapctx.Logger, listenAddr string, obj interface{}) (func(), error) {
