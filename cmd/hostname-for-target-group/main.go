@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/elbv2"
+
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
@@ -141,6 +143,7 @@ type Service struct {
 	syncCache    state.SyncCache
 	resolver     syncer.Resolver
 	syncer       *syncer.Syncer
+	session      *session.Session
 }
 
 var instance = Service{
@@ -268,10 +271,14 @@ func (m *Service) injection(ctx context.Context) error {
 		return fmt.Errorf("unable to make sync finder: %w", err)
 	}
 	m.resolver = m.makeResolver(ctx)
+	ses, err := m.getSession()
+	if err != nil {
+		return fmt.Errorf("unable to get aws session: %w", err)
+	}
 	m.syncer = &syncer.Syncer{
 		Log:    m.log.With(zap.String("class", "syncer")),
 		State:  m.stateStorage,
-		Client: nil,
+		Client: elbv2.New(ses),
 		Config: syncer.Config{
 			InvocationsBeforeDeregistration: m.config.getInvocationsBeforeDeregistration(ctx, m.log),
 			RemoveUnknownTgIP:               m.config.getRemoveUnknownTgIP(ctx, m.log),
@@ -282,11 +289,23 @@ func (m *Service) injection(ctx context.Context) error {
 	return nil
 }
 
+func (m *Service) getSession() (*session.Session, error) {
+	if m.session != nil {
+		return m.session, nil
+	}
+	ses, err := session.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("unable to make aws session: %w", err)
+	}
+	m.session = ses
+	return ses, nil
+}
+
 func (m *Service) makeStateStorage(ctx context.Context) (state.Storage, error) {
 	if m.config.DynamoDBTable == "" {
 		return nil, errors.New("expected env variable DYNAMODB_TABLE")
 	}
-	ses, err := session.NewSession()
+	ses, err := m.getSession()
 	if err != nil {
 		return nil, fmt.Errorf("unable to make aws session: %w", err)
 	}
@@ -334,7 +353,7 @@ func (m *Service) makeSyncFinder(ctx context.Context) (state.SyncFinder, error) 
 			Hostname:       m.config.TargetFqdn,
 		}, nil
 	}
-	ses, err := session.NewSession()
+	ses, err := m.getSession()
 	if err != nil {
 		return nil, fmt.Errorf("unable to make aws session: %w", err)
 	}
