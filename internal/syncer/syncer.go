@@ -76,6 +76,8 @@ type Syncer struct {
 }
 
 func (s *Syncer) Sync(ctx context.Context) error {
+	s.Log.Debug(ctx, "running sync")
+	defer s.Log.Debug(ctx, "sync done")
 	toSyncMap, err := s.SyncFinder.ToSync(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get tg to sync: %w", err)
@@ -84,6 +86,7 @@ func (s *Syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to get any states: %w", err)
 	}
+	s.Log.Debug(ctx, "fetched states", zap.Any("states", currentStates))
 	allResults := make(map[state.Keys]state.State, len(toSyncMap))
 	for tgArn, hostname := range toSyncMap {
 		singleResult, err := s.syncSingle(ctx, tgArn, hostname, currentStates[state.Keys{
@@ -139,6 +142,7 @@ func (s *Syncer) resolveIPs(ctx context.Context, hostname string) ([]string, err
 		}
 		allIPs = append(allIPs, asIPv4.String())
 	}
+	s.Log.Debug(ctx, "resolved hostname", zap.String("hostname", hostname), zap.Strings("ips", allIPs))
 	return allIPs, nil
 }
 
@@ -157,6 +161,9 @@ func (s *Syncer) getTargetGroupIPs(ctx context.Context, targetGroupARN state.Tar
 }
 
 func (s *Syncer) syncSingle(ctx context.Context, targetGroupARN state.TargetGroupARN, hostname string, previousResult state.State) (*state.State, error) {
+	thisLogger := s.Log.With(zap.String("targetgroup_arn", string(targetGroupARN)), zap.String("hostname", hostname))
+	thisLogger.Debug(ctx, "<- syncSingle")
+	defer s.Log.Debug(ctx, "-> syncSingle")
 	allIPs, err := s.resolveIPs(ctx, hostname)
 	if err != nil {
 		return nil, fmt.Errorf("unable to resolve IP for %s: %w", hostname, err)
@@ -165,9 +172,11 @@ func (s *Syncer) syncSingle(ctx context.Context, targetGroupARN state.TargetGrou
 	if err != nil {
 		return nil, fmt.Errorf("unable to get target group IPs %s: %w", targetGroupARN, err)
 	}
+	thisLogger.Debug(ctx, "found current IPs", zap.Strings("ips", currentlyStoredIPs))
 
 	ipToRemove, ipToAdd, newState := resolve(previousResult, currentlyStoredIPs, allIPs, s.Config.InvocationsBeforeDeregistration, s.Config.RemoveUnknownTgIP)
 	if len(ipToAdd) > 0 {
+		thisLogger.Info(ctx, "adding IPs", zap.Strings("ips", ipToAdd))
 		_, err = s.Client.RegisterTargetsWithContext(ctx, &elbv2.RegisterTargetsInput{
 			TargetGroupArn: aws.String(string(targetGroupARN)),
 			Targets:        createTargets(ipToAdd),
@@ -178,6 +187,7 @@ func (s *Syncer) syncSingle(ctx context.Context, targetGroupARN state.TargetGrou
 		}
 	}
 	if len(ipToRemove) > 0 {
+		thisLogger.Info(ctx, "removing IPs", zap.Strings("ips", ipToAdd))
 		_, err = s.Client.DeregisterTargetsWithContext(ctx, &elbv2.DeregisterTargetsInput{
 			TargetGroupArn: aws.String(string(targetGroupARN)),
 			Targets:        createTargets(ipToRemove),

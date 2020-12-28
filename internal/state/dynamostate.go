@@ -27,6 +27,8 @@ type storageObject struct {
 }
 
 func (d *DynamoDBStorage) GetStates(ctx context.Context, syncPairs []Keys) (map[Keys]State, error) {
+	d.Log.Debug(ctx, "<- GetStates", zap.Any("pairs", syncPairs))
+	defer d.Log.Debug(ctx, "-> GetStates")
 	toFetch := make([]map[string]*dynamodb.AttributeValue, 0, len(syncPairs))
 	for _, sp := range syncPairs {
 		toFetch = append(toFetch, map[string]*dynamodb.AttributeValue{
@@ -61,6 +63,7 @@ func (d *DynamoDBStorage) GetStates(ctx context.Context, syncPairs []Keys) (map[
 	// Fill in missing values
 	for _, sp := range syncPairs {
 		if _, exists := ret[sp]; !exists {
+			d.Log.Debug(ctx, "storage miss for state", zap.Any("key", sp))
 			ret[sp] = State{}
 		}
 	}
@@ -68,6 +71,8 @@ func (d *DynamoDBStorage) GetStates(ctx context.Context, syncPairs []Keys) (map[
 }
 
 func (d *DynamoDBStorage) Store(ctx context.Context, toStore map[Keys]State) error {
+	d.Log.Debug(ctx, "<- Store", zap.Any("pairs", toStore))
+	defer d.Log.Debug(ctx, "-> Store")
 	if len(toStore) == 0 {
 		return nil
 	}

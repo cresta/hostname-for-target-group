@@ -203,7 +203,7 @@ func (m *Service) Main() {
 			return
 		}
 	}
-	m.log.Info(context.Background(), "Starting")
+	m.log.Info(context.Background(), "Starting", zap.Any("config", m.config))
 	rootTracer, err := m.tracers.New(m.config.Tracer, gotracing.Config{
 		Log: m.log.With(zap.String("section", "setup_tracing")),
 		Env: os.Environ(),
@@ -362,10 +362,13 @@ func (m *Service) makeSyncFinder(ctx context.Context) (state.SyncFinder, error) 
 	return &state.TagSyncFinder{
 		Client: resourcegroupstaggingapi.New(ses),
 		TagKey: m.config.TgFromTagKey,
+		Log:    syncFinderLogger,
 	}, nil
 }
 
 func (m *Service) runSingleSync(ctx context.Context) error {
+	m.log.Debug(ctx, "<- runSingleSync")
+	defer m.log.Debug(ctx, "-> runSingleSync")
 	err := m.syncer.Sync(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to run single sync: %w", err)
