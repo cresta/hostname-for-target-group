@@ -3,19 +3,20 @@ package syncer
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"net"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/elbv2/elbv2iface"
 	"github.com/cresta/hostname-for-target-group/internal/state"
 	"github.com/cresta/zapctx"
 	"go.uber.org/zap"
-	"math/rand"
-	"net"
 )
 
 type Config struct {
 	InvocationsBeforeDeregistration int
-	RemoveUnknownTgIp bool
+	RemoveUnknownTgIp               bool
 }
 
 type Resolver interface {
@@ -50,7 +51,7 @@ func (m *MultiResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IP
 	logger.Debug(ctx, "starting lookup")
 	idx := rand.Intn(len(m.coreResolvers))
 	var lastErr error
-	for i:=0;i<len(m.coreResolvers);i++ {
+	for i := 0; i < len(m.coreResolvers); i++ {
 		resolverIdx := (idx + i) % len(m.coreResolvers)
 		var ip []net.IPAddr
 		ip, lastErr = m.coreResolvers[resolverIdx].LookupIPAddr(ctx, host)
@@ -66,11 +67,11 @@ func (m *MultiResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IP
 var _ Resolver = &MultiResolver{}
 
 type Syncer struct {
-	Log *zapctx.Logger
-	State state.Storage
-	Client elbv2iface.ELBV2API
-	Config Config
-	Resolver Resolver
+	Log        *zapctx.Logger
+	State      state.Storage
+	Client     elbv2iface.ELBV2API
+	Config     Config
+	Resolver   Resolver
 	SyncFinder state.SyncFinder
 }
 
@@ -83,17 +84,16 @@ func (s *Syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to get any states: %w", err)
 	}
-	var errs []error
-	allResults := make(map[state.StateKeys]state.State, len(toSyncMap))
+	allResults := make(map[state.Keys]state.State, len(toSyncMap))
 	for tgArn, hostname := range toSyncMap {
-		singleResult, err := s.syncSingle(ctx, tgArn, hostname, currentStates[state.StateKeys{
+		singleResult, err := s.syncSingle(ctx, tgArn, hostname, currentStates[state.Keys{
 			TargetGroupARN: tgArn,
 			Hostname:       hostname,
 		}])
 		if err != nil {
-			errs = append(errs, err)
+			s.Log.Warn(ctx, "unable to run sync", zap.String("tg", string(tgArn)), zap.String("hostname", hostname))
 		} else {
-			allResults[state.StateKeys{
+			allResults[state.Keys{
 				TargetGroupARN: tgArn,
 				Hostname:       hostname,
 			}] = *singleResult
@@ -106,12 +106,12 @@ func (s *Syncer) Sync(ctx context.Context) error {
 	return nil
 }
 
-func getSyncKeys(syncMap map[state.TargetGroupARN]string) []state.StateKeys {
-	ret := make([]state.StateKeys, 0, len(syncMap))
+func getSyncKeys(syncMap map[state.TargetGroupARN]string) []state.Keys {
+	ret := make([]state.Keys, 0, len(syncMap))
 	for k, v := range syncMap {
-		ret = append(ret, state.StateKeys{
+		ret = append(ret, state.Keys{
 			TargetGroupARN: k,
-			Hostname: v,
+			Hostname:       v,
 		})
 	}
 	return ret
@@ -125,7 +125,7 @@ func targetsToTimesMissed(t []state.Target) map[string]int {
 	return ret
 }
 
-func (s *Syncer) resolveIPs(ctx context.Context, hostname string) ([]string, error){
+func (s *Syncer) resolveIPs(ctx context.Context, hostname string) ([]string, error) {
 	addrs, err := s.Resolver.LookupIPAddr(ctx, hostname)
 	if err != nil {
 		return nil, fmt.Errorf("unable to resolve IP for %s: %w", hostname, err)
@@ -143,7 +143,7 @@ func (s *Syncer) resolveIPs(ctx context.Context, hostname string) ([]string, err
 }
 
 func (s *Syncer) getTargetGroupIPs(ctx context.Context, targetGroupARN state.TargetGroupARN) ([]string, error) {
-	out, err := s.Client.DescribeTargetHealthWithContext(ctx, &elbv2.DescribeTargetHealthInput {
+	out, err := s.Client.DescribeTargetHealthWithContext(ctx, &elbv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(string(targetGroupARN)),
 	})
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *Syncer) syncSingle(ctx context.Context, targetGroupARN state.TargetGrou
 	if len(ipToRemove) > 0 {
 		_, err = s.Client.DeregisterTargetsWithContext(ctx, &elbv2.DeregisterTargetsInput{
 			TargetGroupArn: aws.String(string(targetGroupARN)),
-			Targets: createTargets(ipToRemove),
+			Targets:        createTargets(ipToRemove),
 		})
 		if err != nil {
 			s.Log.IfErr(err).Warn(ctx, "unable to deregister targets", zap.Strings("targets", ipToRemove))
@@ -233,7 +233,7 @@ func stringSetDiff(oldStrings []string, newStrings []string) (toAdd []string, to
 
 func listToSet(m []string) map[string]struct{} {
 	ret := make(map[string]struct{}, len(m))
-	for _,  s := range m {
+	for _, s := range m {
 		ret[s] = struct{}{}
 	}
 	return ret
@@ -246,11 +246,9 @@ func resolve(previousResult state.State, currentlyStoredIPs []string, resolvedIP
 	tm := targetsToTimesMissed(previousResult.Targets)
 	for _, tr := range currentlyMissing {
 		if _, exists := tm[tr]; exists {
-			tm[tr] += 1
-		} else {
-			if removeUnknownIPs {
-				tm[tr] = invocationsBeforeDeregistration + 1
-			}
+			tm[tr]++
+		} else if removeUnknownIPs {
+			tm[tr] = invocationsBeforeDeregistration + 1
 		}
 	}
 	// Reset to zero any target I'm now seeing

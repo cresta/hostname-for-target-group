@@ -4,13 +4,14 @@ package state_test
 
 import (
 	"context"
+	"os"
+	"strings"
+	"testing"
+
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
 	"github.com/cresta/hostname-for-target-group/internal/state"
 	"github.com/stretchr/testify/require"
-	"os"
-	"strings"
-	"testing"
 )
 
 func TestTagSyncFinder(t *testing.T) {
@@ -25,7 +26,7 @@ func TestTagSyncFinder(t *testing.T) {
 	ses, err := session.NewSession()
 	require.NoError(t, err)
 	client := resourcegroupstaggingapi.New(ses)
-	tf := state.TagSyncFinder {
+	tf := state.TagSyncFinder{
 		Client: client,
 		TagKey: os.Getenv("TAG_KEY"),
 	}

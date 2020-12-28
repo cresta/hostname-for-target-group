@@ -4,6 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
@@ -18,12 +25,6 @@ import (
 	"github.com/signalfx/golib/v3/httpdebug"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"net"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type config struct {
@@ -34,9 +35,9 @@ type config struct {
 	TgFromTagKey                    string
 	DNSServers                      string
 	InvocationsBeforeDeregistration string
-	RemoveUnknownTgIp               string
+	RemoveUnknownTgIP               string
 	DaemonMode                      string
-	DnsRefreshInterval              string
+	DNSRefreshInterval              string
 	TagSearchInterval               string
 	ElbTgArn                        string
 	TargetFqdn                      string
@@ -52,8 +53,8 @@ func (c config) WithDefaults() config {
 	if c.DebugListenAddr == "" {
 		c.DebugListenAddr = ":6060"
 	}
-	if c.DnsRefreshInterval == "" {
-		c.DnsRefreshInterval = "5s"
+	if c.DNSRefreshInterval == "" {
+		c.DNSRefreshInterval = "5s"
 	}
 	if c.TagSearchInterval == "" {
 		c.TagSearchInterval = "30s"
@@ -61,8 +62,8 @@ func (c config) WithDefaults() config {
 	if c.InvocationsBeforeDeregistration == "" {
 		c.InvocationsBeforeDeregistration = "3"
 	}
-	if c.RemoveUnknownTgIp == "" {
-		c.RemoveUnknownTgIp = "true"
+	if c.RemoveUnknownTgIP == "" {
+		c.RemoveUnknownTgIP = "true"
 	}
 	if c.LogLevel == "" {
 		c.LogLevel = "INFO"
@@ -79,10 +80,10 @@ func (c config) getInvocationsBeforeDeregistration(ctx context.Context, logger *
 	return i
 }
 
-func (c config) getRemoveUnknownTgIp(ctx context.Context, logger *zapctx.Logger) bool {
-	ret, err := strconv.ParseBool(c.RemoveUnknownTgIp)
+func (c config) getRemoveUnknownTgIP(ctx context.Context, logger *zapctx.Logger) bool {
+	ret, err := strconv.ParseBool(c.RemoveUnknownTgIP)
 	if err != nil {
-		logger.IfErr(err).Warn(ctx, "unable to parse RemoveUnknownTgIp, defaulting to true", zap.String("RemoveUnknownTgIp", c.RemoveUnknownTgIp))
+		logger.IfErr(err).Warn(ctx, "unable to parse RemoveUnknownTgIP, defaulting to true", zap.String("RemoveUnknownTgIP", c.RemoveUnknownTgIP))
 	}
 	return ret
 }
@@ -90,29 +91,29 @@ func (c config) getRemoveUnknownTgIp(ctx context.Context, logger *zapctx.Logger)
 func getConfig() config {
 	return config{
 		// Defaults to ":8080"
-		ListenAddr:    os.Getenv("LISTEN_ADDR"),
+		ListenAddr: os.Getenv("LISTEN_ADDR"),
 		// Defaults to ":6060"
 		DebugListenAddr: os.Getenv("DEBUG_ADDR"),
 		// Allows you to use a dynamic tracer
-		Tracer:          os.Getenv("TRACER"),
+		Tracer: os.Getenv("TRACER"),
 		// Which dynamodb table to write/read sync results from/to
-		DynamoDBTable:   os.Getenv("DYNAMODB_TABLE"),
+		DynamoDBTable: os.Getenv("DYNAMODB_TABLE"),
 		// The target group to monitor.  Overridden by TG_FROM_TAG_KEY
 		ElbTgArn: os.Getenv("ELB_TG_ARN"),
 		// The host to resolve ElbTgArn into.  Overridden by TG_FROM_TAG_KEY
 		TargetFqdn: os.Getenv("TARGET_FQDN"),
 		// If set, will search for Target groups with this tag key and sync the IPs of that target group
-		TgFromTagKey:    os.Getenv("TG_FROM_TAG_KEY"),
+		TgFromTagKey: os.Getenv("TG_FROM_TAG_KEY"),
 		// Comma separated list of DNS servers to query
-		DNSServers:       os.Getenv("DNS_SERVERS"),
+		DNSServers: os.Getenv("DNS_SERVERS"),
 		// If set, will require this many invocations before deregistring an IP
 		InvocationsBeforeDeregistration: os.Getenv("INVOCATIONS_BEFORE_DEREGISTRATION"),
 		// If true, will also remove IPs from the target group that never had a state
-		RemoveUnknownTgIp: os.Getenv("REMOVE_UNKNOWN_TG_IP"),
+		RemoveUnknownTgIP: os.Getenv("REMOVE_UNKNOWN_TG_IP"),
 		// If true, will run the service continuously, sleeping DNS_REFRESH_INTERVAL
 		DaemonMode: os.Getenv("DAEMON_MODE"),
 		// When in daemon mode, will sleep this long between refreshes
-		DnsRefreshInterval: os.Getenv("DNS_REFRESH_INTERVAL"),
+		DNSRefreshInterval: os.Getenv("DNS_REFRESH_INTERVAL"),
 		// If using mode TG_FROM_TAG_KEY, the interval between searching for tags
 		// This can be useful since the tags change very infrequently
 		TagSearchInterval: os.Getenv("TAG_SEARCH_INTERVAL"),
@@ -120,7 +121,7 @@ func getConfig() config {
 		LambdaMode: os.Getenv("LAMBDA_MODE"),
 		// Optional: Adds a prefix key to fetches for tag cache.
 		TagCachePrefix: os.Getenv("TAG_CACHE_PREFIX"),
-		LogLevel: os.Getenv("LOG_LEVEL"),
+		LogLevel:       os.Getenv("LOG_LEVEL"),
 	}.WithDefaults()
 }
 
@@ -129,17 +130,17 @@ func main() {
 }
 
 type Service struct {
-	osExit   func(int)
-	config   config
-	log      *zapctx.Logger
-	onListen func(net.Listener)
-	server   *http.Server
-	tracers  *gotracing.Registry
+	osExit       func(int)
+	config       config
+	log          *zapctx.Logger
+	onListen     func(net.Listener)
+	server       *http.Server
+	tracers      *gotracing.Registry
 	stateStorage state.Storage
-	syncFinder state.SyncFinder
-	syncCache state.SyncCache
-	resolver syncer.Resolver
-	syncer *syncer.Syncer
+	syncFinder   state.SyncFinder
+	syncCache    state.SyncCache
+	resolver     syncer.Resolver
+	syncer       *syncer.Syncer
 }
 
 var instance = Service{
@@ -169,6 +170,7 @@ func setupLogging(logLevel string) (*zapctx.Logger, error) {
 }
 
 type runningMode int
+
 const (
 	lambdaRunningMode runningMode = iota
 	daemonRunningMode
@@ -260,25 +262,19 @@ func (m *Service) injection(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to make state storage: %w", err)
 	}
-	m.syncCache, err = m.makeSyncCache(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to make sync finder: %w", err)
-	}
+	m.syncCache = m.makeSyncCache(ctx)
 	m.syncFinder, err = m.makeSyncFinder(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to make sync finder: %w", err)
 	}
-	m.resolver, err = m.makeResolver(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to make resolver: %w", err)
-	}
+	m.resolver = m.makeResolver(ctx)
 	m.syncer = &syncer.Syncer{
-		Log:        m.log.With(zap.String("class", "syncer")),
-		State:      m.stateStorage,
-		Client:     nil,
-		Config:     syncer.Config{
+		Log:    m.log.With(zap.String("class", "syncer")),
+		State:  m.stateStorage,
+		Client: nil,
+		Config: syncer.Config{
 			InvocationsBeforeDeregistration: m.config.getInvocationsBeforeDeregistration(ctx, m.log),
-			RemoveUnknownTgIp:               m.config.getRemoveUnknownTgIp(ctx, m.log),
+			RemoveUnknownTgIp:               m.config.getRemoveUnknownTgIP(ctx, m.log),
 		},
 		Resolver:   m.resolver,
 		SyncFinder: m.syncFinder,
@@ -304,24 +300,24 @@ func (m *Service) makeStateStorage(ctx context.Context) (state.Storage, error) {
 	}, nil
 }
 
-func (m *Service) makeResolver(ctx context.Context) (syncer.Resolver, error) {
+func (m *Service) makeResolver(ctx context.Context) syncer.Resolver {
 	servers := strings.Split(m.config.DNSServers, ",")
 	resolverLog := m.log.With(zap.String("servers", m.config.DNSServers))
 	resolverLog.Debug(ctx, "using multi DNS resolver")
-	return syncer.NewMultiResolver(resolverLog, servers), nil
+	return syncer.NewMultiResolver(resolverLog, servers)
 }
 
-func (m *Service) makeSyncCache(ctx context.Context) (state.SyncCache, error) {
+func (m *Service) makeSyncCache(ctx context.Context) state.SyncCache {
 	if m.getRunningMode() == daemonRunningMode {
 		m.log.Debug(ctx, "using local sync cache b/c of daemon mode")
-		return &state.LocalSyncCache{}, nil
+		return &state.LocalSyncCache{}
 	}
 	if asSyncCache, ok := m.stateStorage.(state.SyncCache); ok {
 		m.log.Debug(ctx, "using remove storage as sync cache")
-		return asSyncCache, nil
+		return asSyncCache
 	}
 	m.log.Warn(ctx, "falling back to local sync cache")
-	return &state.LocalSyncCache{}, nil
+	return &state.LocalSyncCache{}
 }
 
 func (m *Service) makeSyncFinder(ctx context.Context) (state.SyncFinder, error) {
@@ -378,28 +374,28 @@ func (m *Service) setupServer(cfg config, log *zapctx.Logger, tracer gotracing.T
 	}, m.log)
 	rootHandler.Handle("/trigger", triggerHandler)
 	return &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           rootHandler,
+		Addr:    cfg.ListenAddr,
+		Handler: rootHandler,
 	}
 }
 
 func (m *Service) setupTicker() (func(), error) {
-	tickInterval, err := time.ParseDuration(m.config.DnsRefreshInterval)
+	tickInterval, err := time.ParseDuration(m.config.DNSRefreshInterval)
 	if err != nil {
 		return nil, err
 	}
 	onClose := make(chan struct{})
 	ticker := time.NewTicker(tickInterval)
 	go func() {
-		for  {
+		for {
 			select {
-				case <- onClose:
-					ticker.Stop()
-					return
-				case <- ticker.C:
-					if err := m.runSingleSync(context.Background()); err != nil {
-						m.log.IfErr(err).Warn(context.Background(), "unable to run single sync")
-					}
+			case <-onClose:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				if err := m.runSingleSync(context.Background()); err != nil {
+					m.log.IfErr(err).Warn(context.Background(), "unable to run single sync")
+				}
 			}
 		}
 	}()

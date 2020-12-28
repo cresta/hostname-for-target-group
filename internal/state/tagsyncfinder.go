@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"fmt"
+
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
 )
 
@@ -14,13 +15,13 @@ type TagSyncFinder struct {
 func (t *TagSyncFinder) ToSync(ctx context.Context) (map[TargetGroupARN]string, error) {
 	res := make(map[TargetGroupARN]string, 10)
 	err := t.Client.GetResourcesPagesWithContext(ctx, &resourcegroupstaggingapi.GetResourcesInput{
-		TagFilters:                []*resourcegroupstaggingapi.TagFilter{
+		TagFilters: []*resourcegroupstaggingapi.TagFilter{
 			{
-				Key:    &t.TagKey,
+				Key: &t.TagKey,
 			},
 		},
 	}, func(output *resourcegroupstaggingapi.GetResourcesOutput, b bool) bool {
-		outer:
+	outer:
 		for _, m := range output.ResourceTagMappingList {
 			for _, tag := range m.Tags {
 				if *tag.Key == t.TagKey {

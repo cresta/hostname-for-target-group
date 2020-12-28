@@ -10,17 +10,17 @@ type TargetGroupARN string
 
 type Storage interface {
 	// GetStates returns a state result for each state key
-	GetStates(ctx context.Context, syncPairs []StateKeys) (map[StateKeys]State, error)
+	GetStates(ctx context.Context, syncPairs []Keys) (map[Keys]State, error)
 	// Store results for all the state keys
-	Store(ctx context.Context, toStore map[StateKeys]State) error
+	Store(ctx context.Context, toStore map[Keys]State) error
 }
 
-type StateKeys struct {
+type Keys struct {
 	TargetGroupARN TargetGroupARN
-	Hostname string
+	Hostname       string
 }
 
-func (k StateKeys) String() string {
+func (k Keys) String() string {
 	return string(k.TargetGroupARN) + " " + k.Hostname
 }
 
@@ -31,7 +31,7 @@ type SyncFinder interface {
 
 type HardCodedSyncFinder struct {
 	TargetGroupARN TargetGroupARN
-	Hostname string
+	Hostname       string
 }
 
 func (h *HardCodedSyncFinder) ToSync(_ context.Context) (map[TargetGroupARN]string, error) {
@@ -48,14 +48,14 @@ type SyncCache interface {
 }
 
 type LocalSyncCache struct {
-	store map[TargetGroupARN]string
+	store    map[TargetGroupARN]string
 	expireAt time.Time
-	mu sync.Mutex
+	mu       sync.Mutex
 }
 
 func (l *LocalSyncCache) copyStore() map[TargetGroupARN]string {
 	ret := make(map[TargetGroupARN]string, len(l.store))
-	for k,v := range l.store {
+	for k, v := range l.store {
 		ret[k] = v
 	}
 	return ret

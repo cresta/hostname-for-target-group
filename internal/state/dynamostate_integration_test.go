@@ -5,14 +5,15 @@ package state_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"testing"
+	"time"
+
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/cresta/hostname-for-target-group/internal/state"
 	"github.com/cresta/zapctx/testhelp/testhelp"
 	"github.com/stretchr/testify/require"
-	"os"
-	"testing"
-	"time"
 )
 
 func TestDynamoDBStorage(t *testing.T) {
@@ -23,8 +24,8 @@ func TestDynamoDBStorage(t *testing.T) {
 	require.NoError(t, err)
 	st := &state.DynamoDBStorage{
 		TableName: os.Getenv("DYNAMODB_TABLE"),
-		Log: testhelp.ZapTestingLogger(t),
-		Client: dynamodb.New(ses),
+		Log:       testhelp.ZapTestingLogger(t),
+		Client:    dynamodb.New(ses),
 	}
 	testAnyStateStorage(t, st)
 	testAnyStateCache(t, st)
@@ -45,7 +46,7 @@ func testAnyStateCache(t *testing.T, store state.SyncCache) {
 	require.NoError(t, err)
 	require.Equal(t, toCache, prev)
 
-	prev, err = store.GetSync(ctx, now.Add(time.Second * 61))
+	prev, err = store.GetSync(ctx, now.Add(time.Second*61))
 	require.NoError(t, err)
 	require.Nil(t, prev)
 	err = store.StoreSync(ctx, nil, now.Add(time.Minute))
@@ -55,25 +56,25 @@ func testAnyStateCache(t *testing.T, store state.SyncCache) {
 func testAnyStateStorage(t *testing.T, store state.Storage) {
 	ctx := context.Background()
 	testName := fmt.Sprintf("TestDynamoDBStorage:%s", time.Now())
-	sk := state.StateKeys{
+	sk := state.Keys{
 		TargetGroupARN: state.TargetGroupARN(testName),
-		Hostname: "www.google.com",
+		Hostname:       "www.google.com",
 	}
 	// States should start missing
-	out, err := store.GetStates(ctx, []state.StateKeys{sk})
+	out, err := store.GetStates(ctx, []state.Keys{sk})
 	require.NoError(t, err)
 	require.Empty(t, out[sk])
 	storedStates := []state.Target{
 		{
 			IP:           "1.2.3.4",
 			TimesMissing: 0,
-		},{
+		}, {
 			IP:           "1.2.3.5",
 			TimesMissing: 3,
 		},
 	}
 	// Should be able to add a state
-	err = store.Store(ctx, map[state.StateKeys]state.State {
+	err = store.Store(ctx, map[state.Keys]state.State{
 		sk: {
 			Targets: storedStates,
 			Version: 1,
@@ -82,7 +83,7 @@ func testAnyStateStorage(t *testing.T, store state.Storage) {
 	require.NoError(t, err)
 
 	// Should see the state when you fetch it out
-	out, err = store.GetStates(ctx, []state.StateKeys{sk})
+	out, err = store.GetStates(ctx, []state.Keys{sk})
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 
@@ -92,13 +93,13 @@ func testAnyStateStorage(t *testing.T, store state.Storage) {
 	require.Equal(t, storedStates, out[sk].Targets)
 
 	// Now remove the item
-	err = store.Store(ctx, map[state.StateKeys]state.State {
+	err = store.Store(ctx, map[state.Keys]state.State{
 		sk: {},
 	})
 	require.NoError(t, err)
 
 	// And expect it gone
-	out, err = store.GetStates(ctx, []state.StateKeys{sk})
+	out, err = store.GetStates(ctx, []state.Keys{sk})
 	require.NoError(t, err)
 	require.Empty(t, out[sk])
 }
