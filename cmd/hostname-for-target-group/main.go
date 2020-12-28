@@ -274,7 +274,7 @@ func (m *Service) injection(ctx context.Context) error {
 		Client: nil,
 		Config: syncer.Config{
 			InvocationsBeforeDeregistration: m.config.getInvocationsBeforeDeregistration(ctx, m.log),
-			RemoveUnknownTgIp:               m.config.getRemoveUnknownTgIP(ctx, m.log),
+			RemoveUnknownTgIP:               m.config.getRemoveUnknownTgIP(ctx, m.log),
 		},
 		Resolver:   m.resolver,
 		SyncFinder: m.syncFinder,

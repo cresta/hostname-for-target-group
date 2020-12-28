@@ -16,7 +16,7 @@ import (
 
 type Config struct {
 	InvocationsBeforeDeregistration int
-	RemoveUnknownTgIp               bool
+	RemoveUnknownTgIP               bool
 }
 
 type Resolver interface {
@@ -166,7 +166,7 @@ func (s *Syncer) syncSingle(ctx context.Context, targetGroupARN state.TargetGrou
 		return nil, fmt.Errorf("unable to get target group IPs %s: %w", targetGroupARN, err)
 	}
 
-	ipToRemove, ipToAdd, newState := resolve(previousResult, currentlyStoredIPs, allIPs, s.Config.InvocationsBeforeDeregistration, s.Config.RemoveUnknownTgIp)
+	ipToRemove, ipToAdd, newState := resolve(previousResult, currentlyStoredIPs, allIPs, s.Config.InvocationsBeforeDeregistration, s.Config.RemoveUnknownTgIP)
 	if len(ipToAdd) > 0 {
 		_, err = s.Client.RegisterTargetsWithContext(ctx, &elbv2.RegisterTargetsInput{
 			TargetGroupArn: aws.String(string(targetGroupARN)),
