@@ -20,17 +20,6 @@ jobs:
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-      - name: Run chart-testing (lint)
-        id: lint
-        uses: helm/chart-testing-action@v1.0.0
-        with:
-          command: lint
-      - name: Create kind cluster
-        uses: helm/kind-action@v1.0.0
-      - name: Install helm chart
-        run:  helm install hostname-for-target-group ./charts/hostname-for-target-group
-      - name: Remove helm chart
-        run:  helm uninstall hostname-for-target-group
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.1.0
         env:
