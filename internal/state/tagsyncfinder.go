@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cresta/zapctx"
 	"go.uber.org/zap"
@@ -46,3 +47,34 @@ func (t *TagSyncFinder) ToSync(ctx context.Context) (map[TargetGroupARN]string, 
 }
 
 var _ SyncFinder = &TagSyncFinder{}
+
+type CachedSyncer struct {
+	SyncFinder    SyncFinder
+	SyncCache     SyncCache
+	Log           *zapctx.Logger
+	CacheDuration time.Duration
+}
+
+func (c *CachedSyncer) ToSync(ctx context.Context) (map[TargetGroupARN]string, error) {
+	now := time.Now()
+	cachedRes, err := c.SyncCache.GetSync(ctx, now)
+	if err != nil {
+		c.Log.IfErr(err).Warn(ctx, "unable to fetch cached sync state")
+	} else if cachedRes != nil {
+		c.Log.Debug(ctx, "found state in cache")
+		return cachedRes, nil
+	}
+	newRes, err := c.SyncFinder.ToSync(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to find arn to sync: %w", err)
+	}
+	if err := c.SyncCache.StoreSync(ctx, newRes, now.Add(c.CacheDuration)); err != nil {
+		c.Log.IfErr(err).Warn(ctx, "unable to store state into cache")
+	} else {
+		c.Log.Debug(ctx, "stored state in cache")
+	}
+
+	return newRes, nil
+}
+
+var _ SyncFinder = &CachedSyncer{}
