@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/cresta/hostname-for-target-group/internal/state"
@@ -162,4 +163,12 @@ func TestResolve(t *testing.T) {
 			require.Equal(t, run.newState, newState)
 		})
 	}
+}
+
+func TestMultiResolver(t *testing.T) {
+	ctx := context.Background()
+	m := NewMultiResolver(nil, nil)
+	ip, err := m.LookupIPAddr(ctx, "www.google.com")
+	require.NoError(t, err)
+	require.True(t, len(ip) > 0)
 }
