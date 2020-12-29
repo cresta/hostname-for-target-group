@@ -2,6 +2,16 @@ apiVersion: v1
 entries:
   hostname-for-target-group:
   - apiVersion: v2
+    appVersion: 0.0.4
+    created: "2020-12-29T03:40:13.947703958Z"
+    description: A Helm chart for Kubernetes
+    digest: 96b472a021412b08c5fdbd847d270dd9168015c7e9488eb22cb59b7c33facef4
+    name: hostname-for-target-group
+    type: application
+    urls:
+    - https://github.com/cresta/hostname-for-target-group/releases/download/hostname-for-target-group-0.1.5/hostname-for-target-group-0.1.5.tgz
+    version: 0.1.5
+  - apiVersion: v2
     appVersion: 0.0.3
     created: "2020-12-29T02:10:37.763773348Z"
     description: A Helm chart for Kubernetes
