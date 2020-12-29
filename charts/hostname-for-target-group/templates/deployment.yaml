@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hostname-for-target-group.fullname" . }}
+  labels:
+    {{- include "hostname-for-target-group.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hostname-for-target-group.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "hostname-for-target-group.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "hostname-for-target-group.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- if .Values.env.tracer}}
+            - name: TRACER
+              value: {{ .Values.env.tracer | quote }}
+            {{- end }}
+            {{- if .Values.env.dynamoDBTable}}
+            - name: DYNAMODB_TABLE
+              value: {{ .Values.env.dynamoDBTable | quote }}
+            {{- end }}
+            {{- if .Values.env.dnsServers }}
+            - name: DNS_SERVERS
+              value: {{ .Values.env.dnsServers | quote }}
+            {{- end }}
+            {{- if .Values.env.invocationsBeforeDeregistration }}
+            - name: INVOCATIONS_BEFORE_DEREGISTRATION
+              value: {{ .Values.env.invocationsBeforeDeregistration | quote }}
+            {{- end }}
+            {{- if .Values.env.removeUnknownTgIP }}
+            - name: REMOVE_UNKNOWN_TG_IP
+              value: {{ .Values.env.removeUnknownTgIP | quote }}
+            {{- end }}
+            {{- if .Values.env.dnsRefreshInterval }}
+            - name: DNS_REFRESH_INTERVAL
+              value: {{ .Values.env.dnsRefreshInterval | quote }}
+            {{- end }}
+            {{- if .Values.env.tagSearchInterval }}
+            - name: TAG_SEARCH_INTERVAL
+              value: {{ .Values.env.tagSearchInterval | quote }}
+            {{- end }}
+            {{- if .Values.env.tagCachePrefix }}
+            - name: TAG_CACHE_PREFIX
+              value: {{ .Values.env.tagCachePrefix | quote }}
+            {{- end }}
+            {{- if .Values.env.logLevel }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.logLevel | quote }}
+            {{- end }}
+            - name: TG_FROM_TAG_KEY
+              value: {{ .Values.env.tgFromTagKey | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
