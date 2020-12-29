@@ -95,7 +95,7 @@ func (s *Syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to get any states: %w", err)
 	}
-	s.Log.Debug(ctx, "fetched states", zap.Any("states", currentStates))
+	s.Log.Debug(ctx, "fetched states", zap.Int("len_states", len(currentStates)))
 	allResults := make(map[state.Keys]state.State, len(toSyncMap))
 	for tgArn, hostname := range toSyncMap {
 		singleResult, err := s.syncSingle(ctx, tgArn, hostname, currentStates[state.Keys{
