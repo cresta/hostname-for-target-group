@@ -29,8 +29,6 @@ jobs:
         uses: helm/kind-action@v1.0.0
       - name: Install helm chart
         run:  helm install hostname-for-target-group ./charts/hostname-for-target-group
-      - name: Test helm chart
-        run:  helm test hostname-for-target-group
       - name: Remove helm chart
         run:  helm uninstall hostname-for-target-group
       - name: Run chart-releaser
