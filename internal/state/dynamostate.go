@@ -29,6 +29,9 @@ type storageObject struct {
 func (d *DynamoDBStorage) GetStates(ctx context.Context, syncPairs []Keys) (map[Keys]State, error) {
 	d.Log.Debug(ctx, "<- GetStates", zap.Any("pairs", syncPairs))
 	defer d.Log.Debug(ctx, "-> GetStates")
+	if len(syncPairs) == 0 {
+		return nil, nil
+	}
 	toFetch := make([]map[string]*dynamodb.AttributeValue, 0, len(syncPairs))
 	for _, sp := range syncPairs {
 		toFetch = append(toFetch, map[string]*dynamodb.AttributeValue{
