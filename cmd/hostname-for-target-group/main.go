@@ -61,7 +61,7 @@ func (c config) WithDefaults() config {
 		c.DNSRefreshInterval = "5s"
 	}
 	if c.TagSearchInterval == "" {
-		c.TagSearchInterval = "30s"
+		c.TagSearchInterval = "60s"
 	}
 	if c.InvocationsBeforeDeregistration == "" {
 		c.InvocationsBeforeDeregistration = "3"
@@ -73,6 +73,15 @@ func (c config) WithDefaults() config {
 		c.LogLevel = "INFO"
 	}
 	return c
+}
+
+func (c config) getTagSearchInterval(ctx context.Context, logger *zapctx.Logger) time.Duration {
+	i, err := time.ParseDuration(c.TagSearchInterval)
+	if err != nil {
+		logger.IfErr(err).Warn(ctx, "unable to parse TAG_SEARCH_INTERVAL: defaulting to 60s", zap.String("env", c.InvocationsBeforeDeregistration))
+		return time.Second * 60
+	}
+	return i
 }
 
 func (c config) getInvocationsBeforeDeregistration(ctx context.Context, logger *zapctx.Logger) int {
@@ -362,10 +371,19 @@ func (m *Service) makeSyncFinder(ctx context.Context) (state.SyncFinder, error) 
 	}
 	syncFinderLogger := m.log.With(zap.String("tag_key", m.config.TgFromTagKey))
 	syncFinderLogger.Debug(ctx, "using tag searching sync finder")
-	return &state.TagSyncFinder{
+	tagFinder := &state.TagSyncFinder{
 		Client: resourcegroupstaggingapi.New(ses),
 		TagKey: m.config.TgFromTagKey,
 		Log:    syncFinderLogger,
+	}
+	if m.syncCache == nil {
+		return tagFinder, nil
+	}
+	return &state.CachedSyncer{
+		SyncFinder:    tagFinder,
+		SyncCache:     m.syncCache,
+		Log:           m.log,
+		CacheDuration: m.config.getTagSearchInterval(ctx, m.log),
 	}, nil
 }
 
