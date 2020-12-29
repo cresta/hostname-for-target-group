@@ -31,6 +31,15 @@ type MultiResolver struct {
 }
 
 func NewMultiResolver(logger *zapctx.Logger, dnsServers []string) *MultiResolver {
+	if len(dnsServers) == 0 {
+		logger.Info(context.Background(), "no dns servers in ENV: using default")
+		return &MultiResolver{
+			coreResolvers: []*net.Resolver{
+				net.DefaultResolver,
+			},
+			logger: logger,
+		}
+	}
 	var ret MultiResolver
 	ret.logger = logger
 	for _, dnsServer := range dnsServers {
