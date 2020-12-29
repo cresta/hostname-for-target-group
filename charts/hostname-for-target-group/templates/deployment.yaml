@@ -72,6 +72,8 @@ spec:
             {{- end }}
             - name: TG_FROM_TAG_KEY
               value: {{ .Values.env.tgFromTagKey | quote }}
+            - name: DAEMON_MODE
+              value: "true"
           ports:
             - name: http
               containerPort: 8080
