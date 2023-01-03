@@ -1,6 +1,6 @@
 module github.com/cresta/hostname-for-target-group
 
-go 1.14
+go 1.19
 
 require (
 	github.com/aws/aws-lambda-go v1.21.0
