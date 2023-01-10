@@ -3,14 +3,14 @@ module github.com/cresta/hostname-for-target-group
 go 1.19
 
 require (
-	github.com/aws/aws-lambda-go v1.21.0
+	github.com/aws/aws-lambda-go v1.37.0
 	github.com/aws/aws-sdk-go v1.36.15
 	github.com/cresta/gotracing v0.2.2
 	github.com/cresta/httpsimple v0.0.1
 	github.com/cresta/zapctx v0.0.3
 	github.com/gorilla/mux v1.8.0
 	github.com/signalfx/golib/v3 v3.3.19
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.7.2
 	go.uber.org/zap v1.21.0
 )
 
@@ -41,5 +41,5 @@ require (
 	google.golang.org/grpc v1.41.0 // indirect
 	google.golang.org/protobuf v1.26.0 // indirect
 	gopkg.in/DataDog/dd-trace-go.v1 v1.29.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
