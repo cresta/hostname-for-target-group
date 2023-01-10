@@ -10,7 +10,7 @@ require (
 	github.com/cresta/zapctx v0.0.3
 	github.com/gorilla/mux v1.8.0
 	github.com/signalfx/golib/v3 v3.3.19
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.8.1
 	go.uber.org/zap v1.21.0
 )
 
@@ -41,5 +41,5 @@ require (
 	google.golang.org/grpc v1.41.0 // indirect
 	google.golang.org/protobuf v1.26.0 // indirect
 	gopkg.in/DataDog/dd-trace-go.v1 v1.29.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
