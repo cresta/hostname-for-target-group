@@ -36,8 +36,8 @@ github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ3
 github.com/cresta/gotracing v0.0.0-20201224013332-658de9731e1b/go.mod h1:tWAaH4f2PWv8Vv/JcYjfZiE1mVsI4sgS7mSEqO5cYL4=
 github.com/cresta/gotracing v0.2.2 h1:KnSbR6VLwrK4fvTeD81E6HpJDPJrtxqE1AGWrajMfB0=
 github.com/cresta/gotracing v0.2.2/go.mod h1:UkcJOrlNi0xhXgEUXU34YGevqATF1a/gNcYkru6prB4=
-github.com/cresta/httpsimple v0.0.1 h1:UzJdlYtoK7IHvWnaVtZeUdxJ+VuvFE4ZKggPr7V03co=
-github.com/cresta/httpsimple v0.0.1/go.mod h1:KG3YDW/9yrz2QEn17KNOW8nXpcDt6XEzG/UbG36eO+Y=
+github.com/cresta/httpsimple v0.0.2 h1:nFvIEnc3gUVLOkpfFzmt3l8oP70cMmMlKmoSkEyXCjo=
+github.com/cresta/httpsimple v0.0.2/go.mod h1:czQiQ+mzmvUDkkm0GSiM3DTvHBz8P2lvrxPZvRbaSiU=
 github.com/cresta/magehelper v0.0.56 h1:tq1+VVBUb/hPxDV55jpCYmYJ9Em1n9VLmZ3imUvcLZA=
 github.com/cresta/magehelper v0.0.56/go.mod h1:yXPw5SVc3lOdsxOeqd7WbMHD+UZDYcpUunUcPa9CVgk=
 github.com/cresta/zapctx v0.0.0-20201224012231-232a208a375a/go.mod h1:yEbJOUfv1GOyN4UeU62bHJ83LCcxpZabkatSJ2Qpx+U=
